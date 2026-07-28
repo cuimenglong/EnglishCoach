@@ -1,0 +1,29 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+
+# Environment
+.env
+.env.example
+
+# Build artifacts
+dist/
+build/
+EnglishCoach.spec
+*.spec
+
+# Data directory (user data created at runtime)
+data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Test / logs
+tests/__pycache__/
