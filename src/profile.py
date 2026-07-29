@@ -1,4 +1,4 @@
-﻿from pydantic import BaseModel
+from pydantic import BaseModel
 
 
 class UserProfile(BaseModel):
@@ -11,7 +11,7 @@ class UserProfile(BaseModel):
 
 
 ASSESSMENT_SYSTEM_PROMPT = (
-    "You are a friendly but thorough English assessment coach. Your job is to assess the user's "
+    "You are a friendly but thorough English assessment coach. Do NOT use Markdown formatting; output plain text only. Your job is to assess the user's "
     "current English level through natural conversation.\n\n"
     "Guidelines:\n"
     "1. Start with a warm greeting and a simple question to get the user talking.\n"

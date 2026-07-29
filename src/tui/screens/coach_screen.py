@@ -1,4 +1,4 @@
-﻿from textual.app import ComposeResult
+from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Header, Input, Button, Static, Footer, RichLog
 from textual.containers import Container, Horizontal, Vertical
@@ -142,6 +142,7 @@ class CoachScreen(Screen):
                 yield Button("Vocabulary Bank", id="btn-vocab", classes="sidebar-btn")
                 yield Button("Course Plan", id="btn-plan", classes="sidebar-btn")
                 yield Button("History", id="btn-history", classes="sidebar-btn")
+                    yield Button("Settings", id="btn-settings", classes="sidebar-btn")
         with Horizontal(id="input-area"):
             yield Input(placeholder="Type your message or /command...", id="chat-input")
             yield Button("Send", variant="primary", id="btn-send")
@@ -227,6 +228,10 @@ class CoachScreen(Screen):
         elif btn_id == "btn-history":
             from src.tui.screens.history_screen import HistoryScreen
             self.app.push_screen(HistoryScreen())
+        elif btn_id == "btn-settings":
+            from src.tui.screens.settings_screen import SettingsScreen
+            from src.config import load_config
+            self.app.push_screen(SettingsScreen(load_config()))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "chat-input":

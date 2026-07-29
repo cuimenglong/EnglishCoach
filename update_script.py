@@ -1,0 +1,3 @@
+﻿-- Write config.py
+-- Write .gitignore update
+-- Write requirements.txt update

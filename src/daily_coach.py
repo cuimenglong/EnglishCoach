@@ -4,7 +4,7 @@ from .course_plan import DailyPlan
 def build_coach_system_prompt(plan: DailyPlan, total_days: int, vocab_context: str = "") -> str:
     """Build the system prompt for today's coaching session."""
     parts = [
-        f"You are an encouraging English writing coach. Today is Day {plan.day} of {total_days}.",
+        f"You are an encouraging English writing coach. Do NOT use Markdown or any special formatting; output plain text only. Today is Day {plan.day} of {total_days}.",
         f"Topic: {plan.topic}",
         f"Focus: {plan.focus}",
         f"Vocabulary theme: {plan.vocab_theme}",

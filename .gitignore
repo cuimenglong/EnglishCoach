@@ -1,12 +1,11 @@
-﻿# Python cache
+# Python cache
 __pycache__/
 *.py[cod]
 *.pyc
 *$py.class
 
 # Environment
-.env
-.env.example
+settings.json
 
 # Build artifacts
 dist/

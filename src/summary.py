@@ -18,7 +18,9 @@ SUMMARY_SYSTEM_PROMPT = (
     "what to focus on next, and a preview of tomorrow's topic]\n\n"
     "## Practice Suggestions\n"
     "[1-2 specific suggestions for what the user can review or practice on their own]\n\n"
-    "Format the output in Markdown. If there were no mistakes (unlikely but possible), "
+    "Do NOT use Markdown formatting. Use plain text only.
+
+Format the output in plain text. If there were no mistakes (unlikely but possible), "
     "note the user's accurate expression instead."
 )
 

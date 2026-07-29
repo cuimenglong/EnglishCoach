@@ -72,7 +72,7 @@ class AssessmentScreen(Screen):
             return
         except Exception as e:
             chat_log.write(format_error_message(f"Connection error: {e}"))
-            chat_log.write(format_system_message("Check your API configuration and try again."))
+            chat_log.write(format_system_message("Check your API key / model / base URL in Settings (press Escape)."))
             return
 
         self.conversation.append({"role": "assistant", "content": content})
@@ -86,6 +86,8 @@ class AssessmentScreen(Screen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-assessment-send":
             self._handle_send()
+        elif event.button.id == "btn-assessment-settings":
+            self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "assessment-input":
@@ -135,4 +137,5 @@ class AssessmentScreen(Screen):
             self._set_input_locked(False)
         except Exception as e:
             chat_log.write(format_error_message(f"Error: {e}"))
+            chat_log.write(format_system_message("Press Escape to return to Settings."))
             self._set_input_locked(False)

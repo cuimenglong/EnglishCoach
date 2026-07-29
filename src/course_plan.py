@@ -1,4 +1,4 @@
-﻿from pydantic import BaseModel
+from pydantic import BaseModel
 from .profile import UserProfile
 from .llm_client import LLMClient
 from .utils import read_json, write_json
@@ -18,7 +18,7 @@ class CoursePlan(BaseModel):
 
 
 COURSE_PLAN_SYSTEM_PROMPT = (
-    "You are a curriculum designer specialized in English language learning. "
+    "You are a curriculum designer specialized in English language learning. Output your plan description in plain text without Markdown. "
     "Based on the user's profile below, create a structured {total_days}-day course plan.\n\n"
     "The plan should:\n"
     "- Progress naturally from foundational to more advanced skills\n"
