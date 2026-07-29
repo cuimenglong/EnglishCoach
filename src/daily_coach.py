@@ -1,7 +1,7 @@
 from .course_plan import DailyPlan
 
 
-def build_coach_system_prompt(plan: DailyPlan, total_days: int, vocab_context: str = "") -> str:
+def build_coach_system_prompt(plan: DailyPlan, total_days: int, vocab_context: str = "", profile_context: str = "") -> str:
     """Build the system prompt for today's coaching session."""
     parts = [
         f"You are an encouraging English writing coach. Do NOT use Markdown or any special formatting; output plain text only. Today is Day {plan.day} of {total_days}.",
@@ -28,6 +28,11 @@ def build_coach_system_prompt(plan: DailyPlan, total_days: int, vocab_context: s
         "  /explain -- The user wants a grammar or usage explanation",
         "  /summary -- End today's session and generate a daily summary",
     ]
+
+    if profile_context:
+        parts.append("")
+        parts.append("=== Student Profile ===")
+        parts.append(profile_context)
 
     if vocab_context:
         parts.append("")

@@ -18,32 +18,47 @@ SUMMARY_SYSTEM_PROMPT = (
     "what to focus on next, and a preview of tomorrow's topic]\n\n"
     "## Practice Suggestions\n"
     "[1-2 specific suggestions for what the user can review or practice on their own]\n\n"
-    "Do NOT use Markdown formatting. Use plain text only.
-
-Format the output in plain text. If there were no mistakes (unlikely but possible), "
+    "Format the output in plain text. Do NOT use Markdown. If there were no mistakes (unlikely but possible), "
     "note the user's accurate expression instead."
 )
 
 
-async def generate_summary(llm_client, conversation: list[dict], day: int, total_days: int) -> str:
+async def generate_summary(llm_client, conversation: list[dict], day: int, total_days: int, current_profile=None):
     """Generate a daily summary from the conversation history and save it."""
     from datetime import date
 
     # Extract user and assistant messages (exclude system prompt)
     history_text = _conversation_to_text(conversation)
+    profile_text = ""
+    if current_profile:
+        profile_text = format_profile_for_prompt(current_profile)
 
+    user_content = f"Here is the conversation from Day {day}/{total_days}.\n\n"
+    if profile_text:
+        user_content += (
+            "=== Student Profile (update this by calling update_dynamic_profile) ===\n"
+            f"{profile_text}\n\n"
+        )
+    user_content += ""
+    if profile_text:
+        user_content += (
+            "---\n"
+            "IMPORTANT: In a single response, FIRST output the student-facing summary as plain text. "
+            "THEN call update_dynamic_profile with the adjusted profile. "
+            "Both outputs are required.\n\n---\n\n"
+        )
+    user_content += history_text
     messages = [
         {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": (
-                f"Here is the conversation from Day {day}/{total_days}. "
-                f"Please generate a structured daily summary.\n\n{history_text}"
-            ),
-        },
+        {"role": "user", "content": user_content},
     ]
 
-    content, _ = await llm_client.chat(messages)
+    content, tool_calls = await llm_client.chat(messages, tools=PROFILE_UPDATE_TOOLS)
+    profile_data = None
+    for tc in tool_calls:
+        if tc["name"] == "update_dynamic_profile":
+            profile_data = tc["arguments"]
+            profile_data["lessons_completed"] = (current_profile.lessons_completed if current_profile else 0) + 1
 
     # Add a header
     today = date.today()
@@ -53,7 +68,7 @@ async def generate_summary(llm_client, conversation: list[dict], day: int, total
     summary_path = daily_log_path()
     summary_path.write_text(full_summary, encoding="utf-8")
 
-    return full_summary
+    return full_summary, profile_data
 
 
 def _conversation_to_text(conversation: list[dict]) -> str:
@@ -90,3 +105,5 @@ def load_summary(date_str: str) -> str | None:
     if path.exists():
         return path.read_text(encoding="utf-8")
     return None
+from .utils import daily_log_path
+from .dynamic_profile import PROFILE_UPDATE_TOOLS, format_profile_for_prompt

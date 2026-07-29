@@ -18,6 +18,14 @@ from src.tui.widgets.chat_widgets import (
     format_system_message,
     format_error_message,
 )
+from src.summary import _conversation_to_text
+from src.dynamic_profile import (
+    load_dynamic_profile,
+    save_dynamic_profile,
+    format_profile_for_prompt,
+    PROFILE_UPDATE_SYSTEM_PROMPT,
+    PROFILE_UPDATE_TOOLS,
+)
 
 
 class CoachScreen(Screen):
@@ -106,6 +114,8 @@ class CoachScreen(Screen):
         self.vocab_count: int = get_vocabulary_count()
         self._streaming = False
         self._awaiting_save = False
+        self.profile = load_dynamic_profile()
+        self.profile_context = format_profile_for_prompt(self.profile)
 
         if self.plan:
             self.today_plan = get_today_plan(self.plan)
@@ -114,6 +124,7 @@ class CoachScreen(Screen):
             self.system_prompt = build_coach_system_prompt(
                 self.today_plan,
                 self.plan.total_days if self.plan else session.total_days,
+                profile_context=self.profile_context,
             )
         else:
             self.system_prompt = "You are an encouraging English writing coach."
@@ -142,7 +153,7 @@ class CoachScreen(Screen):
                 yield Button("Vocabulary Bank", id="btn-vocab", classes="sidebar-btn")
                 yield Button("Course Plan", id="btn-plan", classes="sidebar-btn")
                 yield Button("History", id="btn-history", classes="sidebar-btn")
-                    yield Button("Settings", id="btn-settings", classes="sidebar-btn")
+                yield Button("Settings", id="btn-settings", classes="sidebar-btn")
         with Horizontal(id="input-area"):
             yield Input(placeholder="Type your message or /command...", id="chat-input")
             yield Button("Send", variant="primary", id="btn-send")
@@ -396,14 +407,24 @@ class CoachScreen(Screen):
         self._add_message(format_system_message("Generating your daily summary..."))
         self._set_input_locked(True)
         try:
-            summary = await generate_summary(
+            summary, profile_data = await generate_summary(
                 self.llm,
                 self.conversation,
                 self.session.current_day,
                 self.plan.total_days if self.plan else self.session.total_days,
+                current_profile=self.profile,
             )
             self._add_message(format_coach_message("Today's session is complete! Here is your summary:"))
             self._add_message(summary)
+            # Update profile from the same LLM call that generated the summary
+            if profile_data:
+                for key, value in profile_data.items():
+                    if hasattr(self.profile, key):
+                        setattr(self.profile, key, value)
+                save_dynamic_profile(self.profile)
+                self.profile_context = format_profile_for_prompt(self.profile)
+                self._add_message(format_system_message("Student profile updated for next session."))
+            
             self._add_message(format_system_message(
                 "Progress saved. Restart the app to open the next day's lesson."
             ))
