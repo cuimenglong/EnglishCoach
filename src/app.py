@@ -45,6 +45,7 @@ class EnglishCoachApp(App):
     }
     #assessment-input, #chat-input { width: 1fr; }
     #btn-assessment-send, #btn-send { width: 10; }
+    #btn-assessment-settings { width: 12; }
     #sidebar {
         width: 28; height: 1fr; border: solid $secondary;
         padding: 0 1; background: $surface;

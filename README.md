@@ -1,4 +1,4 @@
-﻿# English Coach
+# English Coach
 
 An LLM-powered English expression improvement tool built with [Textual](https://textual.textualize.io/) TUI.
 
@@ -83,7 +83,7 @@ EnglishPartner/
 ├── run.py                  # Entry point
 ├── src/
 │   ├── app.py              # Main Textual app and navigation
-│   ├── config.py           # Config loading/saving (.env)
+│   ├── config.py           # Config loading/saving (settings.json)
 │   ├── course_plan.py      # Course plan generation (LLM)
 │   ├── daily_coach.py      # Daily coach system prompt builder
 │   ├── knowledge.py        # Vocabulary bank (SQLite + FTS5)

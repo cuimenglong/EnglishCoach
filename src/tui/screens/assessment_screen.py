@@ -14,7 +14,6 @@ from src.tui.widgets.chat_widgets import (
     format_system_message,
     format_error_message,
 )
-from src.tui.screens.settings_screen import SettingsScreen
 
 
 class AssessmentComplete(Message):
@@ -43,6 +42,7 @@ class AssessmentScreen(Screen):
             with Horizontal(id="assessment-input-area"):
                 yield Input(placeholder="Type your response here...", id="assessment-input")
                 yield Button("Send", variant="primary", id="btn-assessment-send")
+                yield Button("Settings", id="btn-assessment-settings")
         yield Footer()
 
     def on_mount(self) -> None:

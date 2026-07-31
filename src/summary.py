@@ -1,4 +1,5 @@
 from .utils import daily_log_path
+from .dynamic_profile import PROFILE_UPDATE_TOOLS, format_profile_for_prompt
 
 
 SUMMARY_SYSTEM_PROMPT = (
@@ -53,7 +54,11 @@ async def generate_summary(llm_client, conversation: list[dict], day: int, total
         {"role": "user", "content": user_content},
     ]
 
-    content, tool_calls = await llm_client.chat(messages, tools=PROFILE_UPDATE_TOOLS)
+    try:
+        content, tool_calls = await llm_client.chat(messages, tools=PROFILE_UPDATE_TOOLS)
+    except Exception:
+        # Some API endpoints do not support function calling; keep summary working.
+        content, tool_calls = await llm_client.chat(messages)
     profile_data = None
     for tc in tool_calls:
         if tc["name"] == "update_dynamic_profile":
@@ -62,7 +67,11 @@ async def generate_summary(llm_client, conversation: list[dict], day: int, total
 
     # Add a header
     today = date.today()
-    full_summary = f"# Daily Summary - Day {day}/{total_days}\n## {today.strftime('%A, %B %d, %Y')}\n\n{content}"
+    full_summary = (
+        f"Daily Summary - Day {day}/{total_days}\n"
+        f"{today.strftime('%A, %B %d, %Y')}\n\n"
+        f"{content}"
+    )
 
     # Save to file
     summary_path = daily_log_path()
@@ -80,9 +89,9 @@ def _conversation_to_text(conversation: list[dict]) -> str:
         if not content:
             continue
         if role == "user":
-            lines.append(f"**User**: {content}")
+            lines.append(f"User: {content}")
         elif role == "assistant":
-            lines.append(f"**Coach**: {content}")
+            lines.append(f"Coach: {content}")
     return "\n\n".join(lines)
 
 
@@ -105,5 +114,3 @@ def load_summary(date_str: str) -> str | None:
     if path.exists():
         return path.read_text(encoding="utf-8")
     return None
-from .utils import daily_log_path
-from .dynamic_profile import PROFILE_UPDATE_TOOLS, format_profile_for_prompt

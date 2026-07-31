@@ -18,13 +18,10 @@ from src.tui.widgets.chat_widgets import (
     format_system_message,
     format_error_message,
 )
-from src.summary import _conversation_to_text
 from src.dynamic_profile import (
     load_dynamic_profile,
     save_dynamic_profile,
     format_profile_for_prompt,
-    PROFILE_UPDATE_SYSTEM_PROMPT,
-    PROFILE_UPDATE_TOOLS,
 )
 
 
@@ -127,7 +124,10 @@ class CoachScreen(Screen):
                 profile_context=self.profile_context,
             )
         else:
-            self.system_prompt = "You are an encouraging English writing coach."
+            self.system_prompt = (
+                "You are an encouraging English writing coach. Do NOT use Markdown; output plain text only. "
+                f"=== Student Profile ===\n{self.profile_context}"
+            )
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -242,7 +242,18 @@ class CoachScreen(Screen):
         elif btn_id == "btn-settings":
             from src.tui.screens.settings_screen import SettingsScreen
             from src.config import load_config
-            self.app.push_screen(SettingsScreen(load_config()))
+            from src.llm_client import LLMClient
+
+            def _on_settings_dismissed(config):
+                if config is not None:
+                    self.llm = LLMClient(
+                        api_key=config.openai_api_key,
+                        base_url=config.base_url,
+                        model=config.model_name,
+                        temperature=config.temperature,
+                    )
+
+            self.app.push_screen(SettingsScreen(load_config()), _on_settings_dismissed)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "chat-input":
