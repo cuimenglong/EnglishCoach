@@ -12,6 +12,7 @@ It talks to you through an LLM to assess your level, creates a personalized cour
 - **Daily summary** — Type `/summary` to end a session. The LLM generates a structured summary with mistakes, corrections, new expressions, and suggestions.
 - **Vocabulary bank** — Save useful expressions during training. The LLM can also save them for you automatically.
 - **Progress tracking** — Day advances only when you complete a session (`/summary`). Resume anytime.
+- **Dynamic student profile** — After every `/summary`, the LLM updates an evolving profile (CEFR level, skill scores, strengths/weaknesses, interests, difficulty, pace) that the coach uses to personalize the next session.
 - **Terminal UI** — Runs in the terminal with a clean, dark-themed TUI. All text is in English.
 - **Portable** — Single-file exe (self-contained, no dependencies to install).
 
@@ -27,7 +28,7 @@ It talks to you through an LLM to assess your level, creates a personalized cour
 ### Option B: Run from source
 ```bash
 # Clone or cd into the project
-cd EnglishPartner
+cd EnglishCoach
 
 # Install dependencies
 pip install -r requirements.txt
@@ -79,7 +80,7 @@ Press **Save & Continue** to proceed.
 ## Project structure
 
 ```
-EnglishPartner/
+EnglishCoach/
 ├── run.py                  # Entry point
 ├── src/
 │   ├── app.py              # Main Textual app and navigation
@@ -89,6 +90,7 @@ EnglishPartner/
 │   ├── knowledge.py        # Vocabulary bank (SQLite + FTS5)
 │   ├── llm_client.py       # OpenAI-compatible API client
 │   ├── profile.py          # User profile model
+│   ├── dynamic_profile.py  # Evolving student profile (scores, weaknesses, pace)
 │   ├── sessions.py         # Session management and progress
 │   ├── summary.py          # Daily summary generation
 │   ├── utils.py            # File I/O and path helpers
@@ -114,6 +116,7 @@ All user data is stored in a `data/` directory beside the exe (or the project ro
 
 - `knowledge.db` — Vocabulary bank
 - `user_profile.json` — Assessment results and last completed day
+- `dynamic_profile.json` — Evolving student profile (CEFR level, skill scores, strengths, pace)
 - `course_plan.json` — Your course plan
 - `session.json` — Current session state
 - `daily_logs/` — Daily summaries (Markdown)
