@@ -19,6 +19,7 @@ from src.tui.widgets.chat_widgets import (
     format_error_message,
 )
 from src.dynamic_profile import (
+    apply_profile_update,
     load_dynamic_profile,
     save_dynamic_profile,
     format_profile_for_prompt,
@@ -427,11 +428,11 @@ class CoachScreen(Screen):
             )
             self._add_message(format_coach_message("Today's session is complete! Here is your summary:"))
             self._add_message(summary)
-            # Update profile from the same LLM call that generated the summary
+            # Update profile from the same LLM call that generated the summary.
+            # Go through apply_profile_update so nested models are re-validated
+            # instead of being replaced by raw dicts.
             if profile_data:
-                for key, value in profile_data.items():
-                    if hasattr(self.profile, key):
-                        setattr(self.profile, key, value)
+                self.profile = apply_profile_update(self.profile, profile_data)
                 save_dynamic_profile(self.profile)
                 self.profile_context = format_profile_for_prompt(self.profile)
                 self._add_message(format_system_message("Student profile updated for next session."))

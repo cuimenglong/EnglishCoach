@@ -1,11 +1,35 @@
-﻿import sqlite3
+﻿import re
+import sqlite3
+import logging
 from pathlib import Path
-from typing import Optional
 
 from .utils import DATA_DIR
 
+logger = logging.getLogger(__name__)
 
 DB_PATH = DATA_DIR / "knowledge.db"
+
+# Word characters only: keeps CJK and accented letters, drops every FTS5
+# operator character.
+_FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def build_fts_query(query: str) -> str:
+    """Turn free-form text into a safe FTS5 MATCH expression.
+
+    FTS5 has its own query language: an unbalanced quote, a bare AND/OR/NOT, or
+    a stray operator all raise ``sqlite3.OperationalError``. Since the query text
+    originates from LLM tool arguments, those inputs reached the database
+    verbatim and could abort the whole coaching turn.
+
+    Quoting every token keeps plain AND-of-terms matching and makes it
+    impossible for the caller to inject FTS5 syntax. Returns "" when the input
+    has no usable tokens, so the caller can skip the query entirely.
+    """
+    tokens = _FTS_TOKEN_RE.findall(query or "")
+    if not tokens:
+        return ""
+    return " ".join(f'"{token}"' for token in tokens)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -62,14 +86,22 @@ def add_vocabulary(expression: str, meaning: str = "", example: str = "", tags: 
 
 
 def search_vocabulary(query: str, limit: int = 5) -> list[dict]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            """SELECT v.id, v.expression, v.meaning, v.example_sentence, v.tags, v.created_at
-               FROM vocab_fts f JOIN vocabulary v ON f.rowid = v.id
-               WHERE vocab_fts MATCH ? ORDER BY rank LIMIT ?""",
-            (query, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
+    match_expr = build_fts_query(query)
+    if not match_expr:
+        return []
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                """SELECT v.id, v.expression, v.meaning, v.example_sentence, v.tags, v.created_at
+                   FROM vocab_fts f JOIN vocabulary v ON f.rowid = v.id
+                   WHERE vocab_fts MATCH ? ORDER BY rank LIMIT ?""",
+                (match_expr, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except sqlite3.Error as exc:
+        # Never let a malformed query kill the surrounding coaching turn.
+        logger.warning("Vocabulary search failed for %r: %s", query, exc)
+        return []
 
 
 def get_all_vocabulary(limit: int = 100, offset: int = 0) -> list[dict]:
@@ -154,7 +186,11 @@ def _handle_add(expression: str, meaning: str = "", example_sentence: str = "", 
 
 
 def _handle_search(query: str):
-    results = search_vocabulary(query)
+    try:
+        results = search_vocabulary(query)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("search_vocabulary tool call failed: %s", exc)
+        return "Vocabulary search is temporarily unavailable."
     if not results:
         return "No matching expressions found in your vocabulary bank."
     lines = ["Found these expressions from your vocabulary bank:"]

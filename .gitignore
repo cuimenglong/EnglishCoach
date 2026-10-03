@@ -6,6 +6,10 @@ __pycache__/
 
 # Environment
 settings.json
+.venv/
+venv/
+env/
+.env
 
 # Build artifacts
 dist/
@@ -15,6 +19,13 @@ EnglishCoach.spec
 
 # Data directory (user data created at runtime)
 data/
+
+# Test / tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # OS
 .DS_Store
@@ -26,3 +37,4 @@ Thumbs.db
 
 # Test / logs
 tests/__pycache__/
+__pycache__/

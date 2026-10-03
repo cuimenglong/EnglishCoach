@@ -2,6 +2,7 @@ from textual import work
 from textual.app import App
 from textual.binding import Binding
 from datetime import date
+import logging
 
 from src.config import load_config, Config
 from src.llm_client import LLMClient
@@ -14,6 +15,8 @@ from src.utils import read_json, write_json
 from src.tui.screens.settings_screen import SettingsScreen
 from src.tui.screens.assessment_screen import AssessmentScreen, AssessmentComplete
 from src.tui.screens.coach_screen import CoachScreen
+
+logger = logging.getLogger(__name__)
 
 
 class EnglishCoachApp(App):
@@ -137,26 +140,40 @@ class EnglishCoachApp(App):
 
         try:
             plan = await generate_course_plan(self._get_llm(), profile)
-            self.session.stage = SessionManager.STAGE_TRAINING
-            self.session.total_days = plan.total_days
-            self.session.save()
-            self.push_screen(CoachScreen(self._get_llm(), self.session))
-        except Exception:
-            fallback_days = []
-            for d in range(1, profile.study_days + 1):
-                fallback_days.append(DailyPlan(
-                    day=d,
-                    topic=f"Day {d}: Building Your Expression Skills",
-                    focus="General writing improvement",
-                    exercise_types=["free_writing", "sentence_rewriting"],
-                    vocab_theme="Daily expressions",
-                ))
-            plan = CoursePlan(total_days=len(fallback_days), days=fallback_days)
+        except Exception as exc:
+            # Previously this was a bare "except Exception" that silently built a
+            # generic placeholder plan, so an invalid API key, a wrong model
+            # name or a network failure all looked like success. Log it, tell
+            # the user, and only then fall back so they can still practise.
+            logger.exception("Course plan generation failed")
+            self.notify(
+                f"Course plan generation failed: {exc}",
+                title="LLM error",
+                severity="error",
+                timeout=15,
+            )
+            plan = self._fallback_plan(profile)
             write_json("course_plan.json", plan.model_dump())
-            self.session.stage = SessionManager.STAGE_TRAINING
-            self.session.total_days = plan.total_days
-            self.session.save()
-            self.push_screen(CoachScreen(self._get_llm(), self.session))
+
+        self.session.stage = SessionManager.STAGE_TRAINING
+        self.session.total_days = plan.total_days
+        self.session.save()
+        self.push_screen(CoachScreen(self._get_llm(), self.session))
+
+    def _fallback_plan(self, profile: UserProfile) -> CoursePlan:
+        """Generic plan used when the LLM is unreachable. Never overwrites a
+        previously generated plan -- the caller writes it only after a failure."""
+        days = [
+            DailyPlan(
+                day=d,
+                topic=f"Day {d}: Building Your Expression Skills",
+                focus="General writing improvement",
+                exercise_types=["free_writing", "sentence_rewriting"],
+                vocab_theme="Daily expressions",
+            )
+            for d in range(1, profile.study_days + 1)
+        ]
+        return CoursePlan(total_days=len(days), days=days)
 
 
 if __name__ == "__main__":

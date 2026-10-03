@@ -10,6 +10,13 @@ class VocabularyScreen(Screen):
 
     TITLE = "Vocabulary Bank"
 
+    def __init__(self) -> None:
+        super().__init__()
+        # Row ids of the entries currently rendered, in display order. Delete
+        # resolves against this list instead of re-querying the unfiltered table,
+        # which used to remove a different expression after a search.
+        self._visible_ids: list[int] = []
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Container(id="vocab-container"):
@@ -36,12 +43,14 @@ class VocabularyScreen(Screen):
     def _populate_list(self, items: list[dict]) -> None:
         vocab_list = self.query_one("#vocab-list", ListView)
         vocab_list.clear()
+        self._visible_ids: list[int] = []
         for item in items:
             label = f"{item['expression']}"
             if item['meaning']:
                 label += f"  --  {item['meaning']}"
             if item['tags']:
                 label += f" [{item['tags']}]"
+            self._visible_ids.append(item["id"])
             vocab_list.append(ListItem(Static(label)))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -57,12 +66,16 @@ class VocabularyScreen(Screen):
             self._load_all()
         elif btn_id == "btn-vocab-delete":
             vocab_list = self.query_one("#vocab-list", ListView)
-            if vocab_list.index is not None:
-                items = get_all_vocabulary(limit=200)
-                idx = vocab_list.index
-                if idx is not None and idx < len(items):
-                    delete_vocabulary(items[idx]["id"])
-                    self._load_all()
+            idx = vocab_list.index
+            if idx is None:
+                self.query_one("#vocab-count", Static).update("Select an entry to delete first.")
+                return
+            if idx < 0 or idx >= len(self._visible_ids):
+                self.query_one("#vocab-count", Static).update("Nothing selected.")
+                return
+            vocab_id = self._visible_ids[idx]
+            delete_vocabulary(vocab_id)
+            self._load_all()
         elif btn_id == "btn-vocab-close":
             self.app.pop_screen()
 

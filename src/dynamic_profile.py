@@ -1,14 +1,18 @@
 ﻿import json
+import logging
 from datetime import date
-from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from .utils import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 PROFILE_PATH = DATA_DIR / "dynamic_profile.json"
 
 
 class SkillScores(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     grammar: int = 5
     vocabulary: int = 5
     sentence_structure: int = 5
@@ -17,6 +21,10 @@ class SkillScores(BaseModel):
 
 
 class DynamicProfile(BaseModel):
+    # Guard rail: without this, assigning a plain dict onto a nested model field
+    # succeeds silently and every later attribute read raises AttributeError.
+    model_config = ConfigDict(validate_assignment=True)
+
     version: int = 1
     last_updated: str = ""
     lessons_completed: int = 0
@@ -53,6 +61,43 @@ def save_dynamic_profile(profile: DynamicProfile):
     profile.last_updated = date.today().isoformat()
     PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_PATH.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
+
+
+def apply_profile_update(current: DynamicProfile, data) -> DynamicProfile:
+    """Merge an LLM-supplied profile update into ``current`` and re-validate.
+
+    LLM tool arguments arrive as plain JSON, so ``skill_scores`` comes through as
+    a ``dict``. Pydantic v2 does not validate on assignment by default, so a
+    blind ``setattr`` stored that dict on the model and the very next call to
+    ``format_profile_for_prompt`` died with
+    ``AttributeError: 'dict' object has no attribute 'grammar'``.
+
+    Rebuilding through the models re-coerces nested dicts into real models.
+    Unknown keys are dropped, and a single bad field is skipped rather than
+    discarding the whole update.
+    """
+    if not isinstance(data, dict):
+        logger.warning("Ignoring non-dict profile update: %r", type(data).__name__)
+        return current
+
+    base = current.model_dump()
+    merged = {**base, **{k: v for k, v in data.items() if k in base}}
+
+    try:
+        return DynamicProfile(**merged)
+    except ValidationError as exc:
+        logger.warning("Profile update had invalid fields (%s); salvaging valid ones", exc)
+
+    salvaged = dict(base)
+    for key, value in merged.items():
+        if key not in salvaged:
+            continue
+        salvaged[key] = value
+        try:
+            DynamicProfile(**salvaged)
+        except ValidationError:
+            salvaged[key] = base[key]
+    return DynamicProfile(**salvaged)
 
 
 def format_profile_for_prompt(profile: DynamicProfile) -> str:

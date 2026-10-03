@@ -110,6 +110,25 @@ pyinstaller run.py --onefile --name EnglishCoach --icon icon.ico --add-data "src
 
 The output will be in `dist/EnglishCoach.exe`.
 
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+
+# Run the test suite
+python -m pytest tests/ -q
+
+# Headless smoke test: mounts every screen
+python tests/smoke_app.py
+```
+
+### Logs
+
+Errors are written to `data/englishcoach.log` (not stdout, so they never
+corrupt the TUI). If a session behaves oddly — for example the course plan
+falls back to a generic version because the LLM call failed — check this file
+first.
+
 ## Data storage
 
 All user data is stored in a `data/` directory beside the exe (or the project root when running from source):
