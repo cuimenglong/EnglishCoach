@@ -5,6 +5,8 @@ TMP = pathlib.Path(tempfile.mkdtemp(prefix="ecoach_smoke_"))
 # project root is the parent of tests/
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
+from textual.app import App
+
 import src.utils as utils
 utils.DATA_DIR = TMP; utils.APP_ROOT = TMP
 import src.config as cfgmod;      cfgmod.APP_ROOT = TMP
@@ -91,6 +93,62 @@ async def main():
     return fails
 
 fails = asyncio.run(main())
+
+# Every sub-screen the coach can push must render a frame. A screen whose
+# render() returns None blows up here rather than silently on screen.
+import importlib
+from src.course_plan import CoursePlan, DailyPlan
+from src.dynamic_profile import DynamicProfile
+from src.coach_policy import build_session_directives
+
+_plan_obj = CoursePlan(
+    total_days=PLAN["total_days"],
+    schema_version=PLAN["schema_version"],
+    days=[DailyPlan(**d) for d in PLAN["days"]],
+)
+_prof = DynamicProfile()
+SUB_SCREENS = [
+    ("src.tui.screens.vocabulary_screen", "VocabularyScreen", ()),
+    ("src.tui.screens.course_plan_screen", "CoursePlanScreen", (_plan_obj,)),
+    ("src.tui.screens.history_screen", "HistoryScreen", ()),
+    ("src.tui.screens.review_screen", "ReviewScreen", ()),
+    ("src.tui.screens.profile_screen", "ProfileScreen",
+     (_prof, build_session_directives(_prof, None))),
+]
+
+for module_name, cls_name, args in SUB_SCREENS:
+    try:
+        cls = getattr(importlib.import_module(module_name), cls_name)
+
+        class _Sub(App):
+            # Only the stylesheet is needed; the app's navigation state machine
+            # would push CoachScreen on top of the screen under test.
+            CSS = EnglishCoachApp.CSS
+
+            def on_mount(self):
+                from src.knowledge import init_db
+                init_db()
+                self.push_screen(cls(*args))
+
+        async def _run_sub():
+            app = _Sub()
+            app.config = Config(openai_api_key="sk-test")
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await asyncio.sleep(0.2)
+                await pilot.pause()
+                return type(app.screen).__name__
+
+        got = asyncio.run(_run_sub())
+        if got != cls_name:
+            print(f"  [FAIL] {cls_name}: landed on {got}")
+            fails += 1
+        else:
+            print(f"  [OK  ] {cls_name}: rendered")
+    except Exception as e:
+        fails += 1
+        print(f"  [FAIL] {cls_name}: {type(e).__name__}: {str(e)[:70]}")
+
 print("=" * 60)
 print("smoke test:", "ALL PASS" if not fails else f"{fails} FAILURE(S)")
 sys.exit(1 if fails else 0)

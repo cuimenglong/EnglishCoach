@@ -1,8 +1,11 @@
 ﻿import re
 import sqlite3
 import logging
+from datetime import date
 from pathlib import Path
 
+from . import srs
+from .srs import ReviewCard, DEFAULT_EASE, get_scheduler
 from .utils import DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -72,17 +75,164 @@ def init_db():
                 VALUES (new.id, new.expression, new.meaning, new.tags);
             END;
         """)
+        # Idempotent upgrade for databases created before SRS existed.
+        srs.migrate(conn)
         conn.commit()
 
 
-def add_vocabulary(expression: str, meaning: str = "", example: str = "", tags: str = "") -> int:
+def _ensure_srs_columns(conn: sqlite3.Connection) -> None:
+    """Make sure SRS columns exist even if init_db() has not run this session."""
+    srs.migrate(conn)
+
+
+def add_vocabulary(
+    expression: str,
+    meaning: str = "",
+    example: str = "",
+    tags: str = "",
+    source: str = "manual",
+) -> int:
+    """Insert an expression.
+
+    Manual /save entries enter the review queue immediately; entries the coach
+    auto-saves start as state='new' with no due date so they only come back once
+    the learner has deliberately enrolled them.
+    """
+    from datetime import date
+
     with get_connection() as conn:
+        _ensure_srs_columns(conn)
         cur = conn.execute(
-            "INSERT INTO vocabulary (expression, meaning, example_sentence, tags) VALUES (?, ?, ?, ?)",
-            (expression.strip(), meaning.strip(), example.strip(), tags.strip()),
+            """INSERT INTO vocabulary
+               (expression, meaning, example_sentence, tags, state, source, due_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                expression.strip(), meaning.strip(), example.strip(), tags.strip(),
+                "review" if source == "manual" else "new",
+                source,
+                date.today().isoformat() if source == "manual" else None,
+            ),
         )
         conn.commit()
         return cur.lastrowid
+
+
+def _select_card_sql(where: str, order: str = "") -> str:
+    return f"""SELECT id, expression, meaning, example_sentence, tags,
+                       reps, lapses, ease, interval_days, due_at, state, last_reviewed_at
+                FROM vocabulary {where} {order}"""
+
+
+def get_review_card(vocab_id: int) -> ReviewCard | None:
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        row = conn.execute(_select_card_sql("WHERE id = ?"), (vocab_id,)).fetchone()
+    return _to_card(row) if row else None
+
+
+def get_due_cards(on: date | None = None, limit: int = 20) -> list[ReviewCard]:
+    """Cards due for review, most overdue first.
+
+    state='new' rows with no due date are excluded: an expression the coach
+    auto-saved has never been consciously studied, so surfacing it would be
+    noise.
+    """
+    on = on or date.today()
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        rows = conn.execute(
+            _select_card_sql(
+                "WHERE due_at IS NOT NULL AND due_at <= ?",
+                "ORDER BY due_at ASC, reps ASC LIMIT ?",
+            ),
+            (on.isoformat(), limit),
+        ).fetchall()
+    return [_to_card(r) for r in rows]
+
+
+def get_due_count(on: date | None = None) -> int:
+    on = on or date.today()
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        return conn.execute(
+            "SELECT COUNT(*) FROM vocabulary WHERE due_at IS NOT NULL AND due_at <= ?",
+            (on.isoformat(),),
+        ).fetchone()[0]
+
+
+def get_learning_cards(limit: int = 50) -> list[ReviewCard]:
+    """Cards still in 'new' state, so the learner can opt into reviewing them."""
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        rows = conn.execute(
+            _select_card_sql("WHERE state = 'new'", "ORDER BY created_at DESC LIMIT ?"),
+            (limit,),
+        ).fetchall()
+    return [_to_card(r) for r in rows]
+
+
+def enroll_in_review(vocab_id: int) -> bool:
+    """Move a 'new' card into the review queue starting today."""
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        cur = conn.execute(
+            """UPDATE vocabulary
+               SET state = 'review', due_at = COALESCE(due_at, ?)
+               WHERE id = ? AND state = 'new'""",
+            (date.today().isoformat(), vocab_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def apply_review(vocab_id: int, rating: int, on: date | None = None) -> dict | None:
+    """Record a review result and reschedule the card."""
+    card = get_review_card(vocab_id)
+    if card is None:
+        return None
+    update = get_scheduler().review(card, rating, on=on)
+    assignments = ", ".join(f"{k} = ?" for k in update)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE vocabulary SET {assignments} WHERE id = ?",
+            (*update.values(), vocab_id),
+        )
+        conn.commit()
+    return update
+
+
+def review_stats() -> dict:
+    """Counts for the sidebar/dashboard."""
+    with get_connection() as conn:
+        _ensure_srs_columns(conn)
+        total = conn.execute("SELECT COUNT(*) FROM vocabulary").fetchone()[0]
+        learning = conn.execute(
+            "SELECT COUNT(*) FROM vocabulary WHERE state = 'new'").fetchone()[0]
+        scheduled = conn.execute(
+            "SELECT COUNT(*) FROM vocabulary WHERE due_at IS NOT NULL").fetchone()[0]
+    return {
+        "total": total,
+        "new": learning,
+        "scheduled": scheduled,
+        "due": get_due_count(),
+    }
+
+
+def _to_card(row) -> ReviewCard:
+    return ReviewCard(
+        id=row["id"],
+        expression=row["expression"],
+        meaning=row["meaning"] or "",
+        example_sentence=row["example_sentence"] or "",
+        tags=row["tags"] or "",
+        reps=row["reps"] or 0,
+        lapses=row["lapses"] or 0,
+        ease=row["ease"] or DEFAULT_EASE,
+        interval_days=row["interval_days"] or 0.0,
+        due_at=row["due_at"] or "",
+        state=row["state"] or "new",
+        last_reviewed_at=row["last_reviewed_at"] or "",
+    )
 
 
 def search_vocabulary(query: str, limit: int = 5) -> list[dict]:
@@ -181,8 +331,13 @@ TOOL_FUNCTION_MAP = {
 
 
 def _handle_add(expression: str, meaning: str = "", example_sentence: str = "", tags: str = ""):
-    vid = add_vocabulary(expression, meaning, example_sentence, tags)
-    return f"Saved expression #{vid}: '{expression}'"
+    vid = add_vocabulary(
+        expression, meaning, example_sentence, tags, source="coach"
+    )
+    return (
+        f"Saved expression #{vid}: '{expression}'. It is available in the "
+        "vocabulary bank and can be added to the review schedule."
+    )
 
 
 def _handle_search(query: str):

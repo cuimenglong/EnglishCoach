@@ -58,6 +58,15 @@ class EnglishCoachApp(App):
     #sidebar Button { width: 100%; margin: 0 0 1 0; }
     #command-hints { height: 1; dock: bottom; color: $text-disabled; text-align: center; }
     #vocab-container, #plan-container, #history-container { padding: 1 2; height: 1fr; }
+    #review-container, #profile-container { padding: 1 2; height: 1fr; }
+    #review-card { height: auto; padding: 2 0; text-align: center; }
+    #review-detail { height: auto; padding: 1 0 2 0; text-align: center; }
+    #review-progress, #review-hint { height: auto; text-align: center; }
+    #review-buttons { height: auto; align: center middle; }
+    #review-buttons Button { margin: 0 1; width: 16; }
+    #profile-title { text-style: bold; color: $accent; padding: 1 0; }
+    #profile-skills, #profile-summary, #profile-directives { padding: 1 0; }
+    #profile-directives { border-top: solid $secondary; margin-top: 1; }
     #vocab-title, #plan-title, #history-title { text-style: bold; color: $accent; padding: 1 0; }
     #vocab-search { width: 1fr; }
     #vocab-list, #plan-list, #history-list { height: 1fr; }

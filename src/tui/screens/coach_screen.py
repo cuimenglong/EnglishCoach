@@ -135,9 +135,12 @@ class CoachScreen(Screen):
 
         # Difficulty, priority skill and session length are computed from the
         # profile here rather than left to the model, which would otherwise just
-        # echo back whatever difficulty string we showed it.
+        # echo back whatever difficulty string we showed it. Due vocabulary is
+        # passed in so review is proactive instead of waiting for the model to
+        # decide to call search_vocabulary.
+        self.due_vocabulary = self._load_due_vocabulary()
         self.directives: SessionDirectives = build_session_directives(
-            self.profile, self.today_plan
+            self.profile, self.today_plan, due_vocabulary=self.due_vocabulary
         )
 
         if self.today_plan:
@@ -154,6 +157,20 @@ class CoachScreen(Screen):
                 f"=== Student Profile ===\n{self.profile_context}"
                 + (f"\n\n{self.persona_context}" if self.persona_context else "")
             )
+
+    @staticmethod
+    def _load_due_vocabulary(limit: int = 5) -> list[dict]:
+        """Expressions due for review, shaped for the directives fragment."""
+        try:
+            from src.knowledge import get_due_cards
+            return [
+                {"expression": c.expression, "meaning": c.meaning}
+                for c in get_due_cards(limit=limit)
+            ]
+        except Exception as exc:
+            # Review is an enhancement; never let it stop a training session.
+            logger.warning("Could not load due vocabulary: %s", exc)
+            return []
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -247,9 +264,20 @@ class CoachScreen(Screen):
             self.query_one("#sidebar-progress", Static).update("No course plan loaded.")
 
         self.vocab_count = get_vocabulary_count()
-        self.query_one("#sidebar-vocab", Static).update(
-            f"Saved expressions: [bold]{self.vocab_count}[/]"
-        )
+        due = self._due_count()
+        text = f"Saved expressions: [bold]{self.vocab_count}[/]"
+        if due:
+            text += f"\nDue for review: [bold yellow]{due}[/]  (/review)"
+        self.query_one("#sidebar-vocab", Static).update(text)
+
+    @staticmethod
+    def _due_count() -> int:
+        try:
+            from src.knowledge import get_due_count
+            return get_due_count()
+        except Exception as exc:
+            logger.warning("Could not read due count: %s", exc)
+            return 0
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -358,6 +386,12 @@ class CoachScreen(Screen):
         elif cmd == "/vocab":
             from src.tui.screens.vocabulary_screen import VocabularyScreen
             self.app.push_screen(VocabularyScreen())
+        elif cmd == "/review":
+            from src.tui.screens.review_screen import ReviewScreen
+            self.app.push_screen(ReviewScreen())
+        elif cmd == "/profile":
+            from src.tui.screens.profile_screen import ProfileScreen
+            self.app.push_screen(ProfileScreen(self.profile, self.directives))
         else:
             self._add_message(format_system_message(f"Unknown command: {cmd}. Type /help for commands."))
 
