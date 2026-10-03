@@ -21,6 +21,7 @@ from src.course_plan import (
 from src.sessions import SessionManager
 from src.summary import generate_summary
 from src.tui.widgets.chat_widgets import (
+    format_coach_mark,
     format_coach_message,
     format_user_message,
     format_system_message,
@@ -82,6 +83,16 @@ class CoachScreen(Screen):
         margin-top: 1;
     }
 
+    #sidebar-mark {
+        height: auto;
+        margin-top: 0;
+    }
+
+    #sidebar-day {
+        text-align: center;
+        margin-top: 0;
+    }
+
     .sidebar-section {
         margin: 0 0 1 0;
         width: 100%;
@@ -92,6 +103,9 @@ class CoachScreen(Screen):
         margin: 0 0 1 0;
     }
 
+    #typing-indicator {
+        height: 1; dock: bottom; color: $text-muted; padding: 0 2;
+    }
     #input-area {
         height: 3;
         dock: bottom;
@@ -129,6 +143,8 @@ class CoachScreen(Screen):
         self.persona = load_persona()
         self.persona_context = render_persona_prompt(self.persona)
         self._session_note_source: list[dict] = []
+        self._typing_timer = None
+        self._typing_frame = 0
 
         if self.plan:
             self.today_plan = get_today_plan(self.plan)
@@ -186,6 +202,9 @@ class CoachScreen(Screen):
                     max_lines=2000,
                 )
             with Vertical(id="sidebar"):
+                yield Static(format_coach_mark(), id="sidebar-mark", classes="sidebar-title")
+                yield Static(f"Day {self.session.current_day} of {self.session.total_days}",
+                             id="sidebar-day", classes="sidebar-title")
                 yield Static("Today's Plan", classes="sidebar-title")
                 yield Static(id="sidebar-topic", classes="sidebar-section")
                 yield Static("Progress", classes="sidebar-title")
@@ -195,15 +214,19 @@ class CoachScreen(Screen):
                 yield Static("Quick Access", classes="sidebar-title")
                 yield Button("Vocabulary Bank", id="btn-vocab", classes="sidebar-btn")
                 yield Button("Course Plan", id="btn-plan", classes="sidebar-btn")
+                yield Button("Review Cards", id="btn-review", classes="sidebar-btn")
+                yield Button("My Profile", id="btn-profile", classes="sidebar-btn")
                 yield Button("History", id="btn-history", classes="sidebar-btn")
                 yield Button("Settings", id="btn-settings", classes="sidebar-btn")
         with Horizontal(id="input-area"):
             yield Input(placeholder="Type your message or /command...", id="chat-input")
             yield Button("Send", variant="primary", id="btn-send")
+        yield Static("", id="typing-indicator")
         yield Static(get_command_prompt(), id="command-hints")
         yield Footer()
 
     def on_mount(self) -> None:
+        self._set_typing(False)
         self._update_sidebar()
         self._restore_conversation()
         if not self.conversation:
@@ -236,7 +259,8 @@ class CoachScreen(Screen):
             elif role == "tool":
                 self._add_message(format_system_message(content))
 
-    def _add_message(self, renderable: str) -> None:
+    def _add_message(self, renderable) -> None:
+        """Append to the chat log. Accepts a str or any Rich renderable."""
         chat_log = self.query_one("#chat-log", RichLog)
         chat_log.write(renderable)
         chat_log.write("")
@@ -293,6 +317,12 @@ class CoachScreen(Screen):
         elif btn_id == "btn-history":
             from src.tui.screens.history_screen import HistoryScreen
             self.app.push_screen(HistoryScreen())
+        elif btn_id == "btn-review":
+            from src.tui.screens.review_screen import ReviewScreen
+            self.app.push_screen(ReviewScreen())
+        elif btn_id == "btn-profile":
+            from src.tui.screens.profile_screen import ProfileScreen
+            self.app.push_screen(ProfileScreen(self.profile, self.directives))
         elif btn_id == "btn-settings":
             from src.tui.screens.settings_screen import SettingsScreen
             from src.config import load_config
@@ -317,6 +347,38 @@ class CoachScreen(Screen):
         self._streaming = locked
         self.query_one("#chat-input", Input).disabled = locked
         self.query_one("#btn-send", Button).disabled = locked
+        if not locked:
+            self._set_typing(False)
+
+    _TYPING_FRAMES = ("Coach is typing", "Coach is typing.", "Coach is typing..",
+                      "Coach is typing...")
+
+    def _set_typing(self, active: bool) -> None:
+        """Show progress while an LLM call is in flight.
+
+        Without this the UI is simply silent for 5-20 seconds, which reads as a
+        hang rather than as waiting.
+        """
+        indicator = self.query_one("#typing-indicator", Static)
+        indicator.display = active
+        if active:
+            indicator.update(self._TYPING_FRAMES[0])
+            if not self._typing_timer:
+                self._typing_frame = 0
+                self._typing_timer = self.set_interval(
+                    0.45, self._tick_typing, name="typing-indicator"
+                )
+        else:
+            indicator.update("")
+            if self._typing_timer is not None:
+                self._typing_timer.stop()
+                self._typing_timer = None
+
+    def _tick_typing(self) -> None:
+        self._typing_frame = (self._typing_frame + 1) % len(self._TYPING_FRAMES)
+        self.query_one("#typing-indicator", Static).update(
+            self._TYPING_FRAMES[self._typing_frame]
+        )
 
     def _handle_send(self) -> None:
         user_input = self.query_one("#chat-input", Input).value.strip()
@@ -397,6 +459,7 @@ class CoachScreen(Screen):
 
     @work(thread=False)
     async def _stream_response(self) -> None:
+        self._set_typing(True)
         try:
             messages = [{"role": "system", "content": self.system_prompt}] + self.conversation
 
@@ -466,6 +529,8 @@ class CoachScreen(Screen):
             self._add_message(format_error_message(f"Error: {e}"))
             self._set_input_locked(False)
             self.query_one("#chat-input", Input).focus()
+        finally:
+            self._set_typing(False)
 
     @work(thread=False)
     async def _generate_summary(self) -> None:
@@ -477,6 +542,7 @@ class CoachScreen(Screen):
 
         self._add_message(format_system_message("Generating your daily summary..."))
         self._set_input_locked(True)
+        self._set_typing(True)
         try:
             summary, profile_data = await generate_summary(
                 self.llm,
@@ -486,7 +552,7 @@ class CoachScreen(Screen):
                 current_profile=self.profile,
             )
             self._add_message(format_coach_message("Today's session is complete! Here is your summary:"))
-            self._add_message(summary)
+            self._add_message(format_coach_message(summary))
             # Update profile from the same LLM call that generated the summary.
             # Go through apply_profile_update so nested models are re-validated
             # instead of being replaced by raw dicts.
@@ -527,6 +593,7 @@ class CoachScreen(Screen):
         except Exception as e:
             self._add_message(format_error_message(f"Error generating summary: {e}"))
         finally:
+            self._set_typing(False)
             self._set_input_locked(False)
             self.query_one("#chat-input", Input).focus()
 

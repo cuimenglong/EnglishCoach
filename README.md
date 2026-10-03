@@ -12,8 +12,13 @@ It talks to you through an LLM to assess your level, creates a personalized cour
 - **Daily summary** — Type `/summary` to end a session. The LLM generates a structured summary with mistakes, corrections, new expressions, and suggestions.
 - **Vocabulary bank** — Save useful expressions during training. The LLM can also save them for you automatically.
 - **Progress tracking** — Day advances only when you complete a session (`/summary`). Resume anytime.
-- **Dynamic student profile** — After every `/summary`, the LLM updates an evolving profile (CEFR level, skill scores, strengths/weaknesses, interests, difficulty, pace) that the coach uses to personalize the next session.
-- **Terminal UI** — Runs in the terminal with a clean, dark-themed TUI. All text is in English.
+- **Dynamic student profile** — After every `/summary`, the LLM updates an evolving profile (CEFR level, skill scores, strengths/weaknesses, interests, difficulty, pace).
+- **The profile drives the session** — Difficulty, today's priority skill, session length and due review items are computed from your profile in code, not left to the model. Difficulty comes from your actual skill scores rather than the model's own opinion of them.
+- **Adaptive course plan** — Each day has concrete knowledge points plus an optional stretch goal. After every session the remaining days are rewritten to match how you are actually doing; completed days are never touched.
+- **Coach persona** — During the assessment you choose how you want to be taught (friendly partner, strict examiner, business coach, Socratic tutor), and that persona holds for the whole course.
+- **Spaced repetition** — Saved expressions enter a review schedule. Expressions that are due are surfaced automatically during your session, and `/review` gives you a keyboard-driven flashcard drill.
+- **Skill dashboard** — `/profile` shows your five skill dimensions as bars and exactly what the coach was set to today.
+- **Terminal UI** — Runs in the terminal with a clean, dark-themed TUI. Coach replies render as Markdown, and a typing indicator shows while the model is working.
 - **Portable** — Single-file exe (self-contained, no dependencies to install).
 
 ## Quick Start
@@ -58,6 +63,8 @@ Press **Save & Continue** to proceed.
 | `/practice` | Request an exercise related to today's focus. |
 | `/save` | Save an expression to your vocabulary bank (type it after the prompt). |
 | `/explain` | Ask for a grammar or usage explanation. |
+| `/review` | Flashcard review of expressions that are due. |
+| `/profile` | Show your skill profile and today's coaching settings. |
 | `/plan` | View the full course plan. |
 | `/vocab` | Browse your vocabulary bank. |
 | `/help` | Show available commands. |

@@ -73,8 +73,7 @@ class CoursePlan(BaseModel):
 
 COURSE_PLAN_SYSTEM_PROMPT = (
     "You are a curriculum designer specialized in English language learning.\n\n"
-    "Create a structured {total_days}-day course plan for the user profile below.\n\n"
-    "The plan must:\n"
+    "Create a structured {total_days}-day course plan for the user profile below.\n\n"    "The plan must:\n"
     "- Progress naturally from foundational to more advanced skills\n"
     "- Be tailored to the user's level, goals, and interests\n"
     "- Name CONCRETE knowledge points, not vague themes\n\n"

@@ -143,7 +143,7 @@ The profile is used to personalize future sessions, so be honest and specific. I
 Previous profile:
 {current_profile}
 
-Analyze the conversation and call the update_dynamic_profile function with the adjusted values. Incorporate previous data and layer today's observations on top. Do NOT use Markdown."""
+Analyze the conversation and call the update_dynamic_profile function with the adjusted values. Incorporate previous data and layer today's observations on top."""
 
 
 PROFILE_UPDATE_TOOLS = [
