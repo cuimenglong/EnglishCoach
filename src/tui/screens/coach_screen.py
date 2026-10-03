@@ -4,12 +4,20 @@ from textual.widgets import Header, Input, Button, Static, Footer, RichLog
 from textual.containers import Container, Horizontal, Vertical
 from textual import work
 import json
+import logging
+
 from src.utils import read_json, write_json
 
 from src.llm_client import LLMClient, TextChunk, FunctionCall, Done, Error
 from src.knowledge import TOOL_DEFINITIONS, TOOL_FUNCTION_MAP, get_vocabulary_count
 from src.daily_coach import build_coach_system_prompt, get_command_prompt, COMMAND_DESCRIPTIONS
-from src.course_plan import CoursePlan, DailyPlan, load_course_plan, get_today_plan
+from src.course_plan import (
+    CoursePlan,
+    DailyPlan,
+    load_course_plan,
+    get_today_plan,
+    revise_plan_tail,
+)
 from src.sessions import SessionManager
 from src.summary import generate_summary
 from src.tui.widgets.chat_widgets import (
@@ -19,12 +27,15 @@ from src.tui.widgets.chat_widgets import (
     format_error_message,
 )
 from src.persona import load_persona, render_persona_prompt
+from src.coach_policy import SessionDirectives, build_session_directives
 from src.dynamic_profile import (
     apply_profile_update,
     load_dynamic_profile,
     save_dynamic_profile,
     format_profile_for_prompt,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CoachScreen(Screen):
@@ -117,9 +128,17 @@ class CoachScreen(Screen):
         self.profile_context = format_profile_for_prompt(self.profile)
         self.persona = load_persona()
         self.persona_context = render_persona_prompt(self.persona)
+        self._session_note_source: list[dict] = []
 
         if self.plan:
             self.today_plan = get_today_plan(self.plan)
+
+        # Difficulty, priority skill and session length are computed from the
+        # profile here rather than left to the model, which would otherwise just
+        # echo back whatever difficulty string we showed it.
+        self.directives: SessionDirectives = build_session_directives(
+            self.profile, self.today_plan
+        )
 
         if self.today_plan:
             self.system_prompt = build_coach_system_prompt(
@@ -127,6 +146,7 @@ class CoachScreen(Screen):
                 self.plan.total_days if self.plan else session.total_days,
                 profile_context=self.profile_context,
                 persona_context=self.persona_context,
+                session_directives=self.directives.render(),
             )
         else:
             self.system_prompt = (
@@ -447,6 +467,9 @@ class CoachScreen(Screen):
             ))
 
             completed_day = self.session.current_day
+            # Snapshot before clearing: the plan revision needs to see what was
+            # actually practised today.
+            self._session_note_source = list(self.conversation)
             self.conversation = []
             self.session.training_history = []
 
@@ -457,9 +480,77 @@ class CoachScreen(Screen):
             next_day = min(completed_day + 1, self.session.total_days)
             self.session.current_day = next_day
             self.session.save()
+
+            # Adapt the remaining days to how the session actually went. This
+            # only rewrites days from next_day onward; completed days are
+            # out of scope by construction.
+            await self._revise_remaining_plan(next_day)
+
+            # Rebuild the day context. Without this the prompt would still say
+            # "Today is Day N" after the day counter moved on.
+            self._refresh_day_context()
             self._update_sidebar()
         except Exception as e:
             self._add_message(format_error_message(f"Error generating summary: {e}"))
         finally:
             self._set_input_locked(False)
             self.query_one("#chat-input", Input).focus()
+
+    def _session_note(self, max_chars: int = 1500) -> str:
+        """A short digest of the finished session, for the plan revision prompt."""
+        parts = []
+        for msg in self.session_note_source or []:
+            content = (msg.get("content") or "").strip()
+            if not content:
+                continue
+            role = "Learner" if msg.get("role") == "user" else "Coach"
+            parts.append(f"{role}: {content[:300]}")
+        note = "\n".join(parts)
+        return note[:max_chars]
+
+    async def _revise_remaining_plan(self, next_day: int) -> None:
+        if not self.plan or next_day > self.session.total_days:
+            return
+        try:
+            result = await revise_plan_tail(
+                self.llm,
+                self.plan,
+                from_day=next_day,
+                profile_context=format_profile_for_prompt(self.profile),
+                session_note=self._session_note(),
+            )
+        except Exception as exc:
+            # A failed revision must never block the summary that already
+            # succeeded; the existing plan simply stays as it is.
+            logger.warning("Plan revision failed: %s", exc)
+            return
+
+        if result is None:
+            return
+        self.plan, reason = result
+        message = "Course plan updated to match your progress."
+        if reason:
+            message += f" Reason: {reason}"
+        self._add_message(format_system_message(message))
+
+    def _refresh_day_context(self) -> None:
+        """Reload plan, directives and system prompt for the current day."""
+        self.plan = load_course_plan() or self.plan
+        self.today_plan = get_today_plan(self.plan) if self.plan else None
+        self.profile_context = format_profile_for_prompt(self.profile)
+        self.directives = build_session_directives(self.profile, self.today_plan)
+
+        if self.today_plan:
+            self.system_prompt = build_coach_system_prompt(
+                self.today_plan,
+                self.plan.total_days if self.plan else self.session.total_days,
+                profile_context=self.profile_context,
+                persona_context=self.persona_context,
+                session_directives=self.directives.render(),
+            )
+        else:
+            self.system_prompt = (
+                "You are an encouraging English writing coach. "
+                f"=== Student Profile ===\n{self.profile_context}"
+                + (f"\n\n{self.persona_context}" if self.persona_context else "")
+            )
