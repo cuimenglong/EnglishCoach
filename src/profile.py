@@ -1,4 +1,18 @@
-from pydantic import BaseModel
+import json
+import logging
+from pydantic import BaseModel, Field, ValidationError
+
+from .persona import CoachPersona, PERSONA_PRESETS, PERSONA_PRESET_LABELS
+
+logger = logging.getLogger(__name__)
+
+
+def _persona_option_lines() -> str:
+    """Render the preset choices for the assessment prompt."""
+    return "".join(
+        f"     - {key}: {PERSONA_PRESET_LABELS[key]}\n"
+        for key in PERSONA_PRESETS
+    )
 
 
 class UserProfile(BaseModel):
@@ -8,6 +22,7 @@ class UserProfile(BaseModel):
     goals: list[str] = []
     study_days: int = 14
     interest_topics: list[str] = []
+    persona: CoachPersona = Field(default_factory=CoachPersona)
 
 
 ASSESSMENT_SYSTEM_PROMPT = (
@@ -21,9 +36,12 @@ ASSESSMENT_SYSTEM_PROMPT = (
     "4. Ask about their learning goals (daily communication, business writing, exams, academic writing, etc.).\n"
     "5. Ask about topics they are interested in (technology, business, science, travel, culture, etc.).\n"
     "6. Ask how many days they would like to commit to a study plan (7, 14, 21, or 30 days).\n"
-    "7. Keep the conversation encouraging and natural -- don't make it feel like a test.\n"
-    "8. After 5-8 exchanges (once you have enough information), call the submit_assessment function "
-    "to provide the structured profile.\n\n"
+    "7. Ask what KIND of teacher they would like. Offer these options and let them\n"
+    "   pick one or describe their own:\n"
+    + _persona_option_lines()
+    + "8. Keep the conversation encouraging and natural -- don't make it feel like a test.\n"
+    "9. After 5-9 exchanges (once you have enough information), call the submit_assessment\n"
+    "   function to provide the structured profile.\n\n"
     "IMPORTANT: Do NOT call submit_assessment before you have enough information about all fields. "
     "Be conversational first."
 )
@@ -66,8 +84,48 @@ ASSESSMENT_TOOLS = [
                         "items": {"type": "string"},
                         "description": "Topics the user is interested in discussing",
                     },
+                    "persona": {
+                        "type": "object",
+                        "description": "How the user wants to be taught",
+                        "properties": {
+                            "preset": {
+                                "type": "string",
+                                "enum": list(PERSONA_PRESETS.keys()) + ["custom"],
+                                "description": "Closest matching teacher style",
+                            },
+                            "warmth": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 5,
+                                "description": "1 = reserved/professional, 5 = very warm and encouraging",
+                            },
+                            "strictness": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 5,
+                                "description": "1 = correct only meaning-changing errors, 5 = correct everything",
+                            },
+                            "verbosity": {
+                                "type": "string",
+                                "enum": ["concise", "balanced", "detailed"],
+                            },
+                            "correction_style": {
+                                "type": "string",
+                                "enum": ["gentle", "balanced", "thorough"],
+                            },
+                            "accent": {
+                                "type": "string",
+                                "enum": ["neutral", "british", "american"],
+                            },
+                            "free_text": {
+                                "type": "string",
+                                "description": "Anything else the user said about how they want to be taught",
+                            },
+                        },
+                        "required": ["preset", "warmth", "strictness", "verbosity", "correction_style"],
+                    },
                 },
-                "required": ["level", "strengths", "weaknesses", "goals", "study_days", "interest_topics"],
+                "required": ["level", "strengths", "weaknesses", "goals", "study_days", "interest_topics", "persona"],
             },
         },
     },
@@ -89,13 +147,36 @@ async def run_assessment_turn(
 
     profile = None
     for tc in tool_calls:
-        if tc["name"] == "submit_assessment":
+        if tc["name"] != "submit_assessment":
+            continue
+        try:
             profile = UserProfile(**tc["arguments"])
+        except ValidationError as exc:
+            # A malformed persona (or any other field) must not lose an
+            # otherwise complete assessment.
+            logger.warning("Assessment payload failed validation: %s", exc)
+            data = dict(tc["arguments"])
+            data.pop("persona", None)
+            try:
+                profile = UserProfile(**data)
+            except ValidationError as exc2:
+                logger.warning("Assessment payload still invalid without persona: %s", exc2)
+                continue
 
     assistant_msg = {"role": "assistant", "content": content}
     if tool_calls:
         assistant_msg["tool_calls"] = [
-            {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": tc["arguments"]}}
+            {
+                "id": tc["id"],
+                "type": "function",
+                "function": {
+                    "name": tc["name"],
+                    # Must be a JSON string, not a dict: the OpenAI chat
+                    # completions schema rejects a non-string here, which
+                    # broke the turn after submit_assessment.
+                    "arguments": json.dumps(tc["arguments"]),
+                },
+            }
             for tc in tool_calls
         ]
     conversation.append(assistant_msg)

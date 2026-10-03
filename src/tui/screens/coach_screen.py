@@ -18,6 +18,7 @@ from src.tui.widgets.chat_widgets import (
     format_system_message,
     format_error_message,
 )
+from src.persona import load_persona, render_persona_prompt
 from src.dynamic_profile import (
     apply_profile_update,
     load_dynamic_profile,
@@ -114,6 +115,8 @@ class CoachScreen(Screen):
         self._awaiting_save = False
         self.profile = load_dynamic_profile()
         self.profile_context = format_profile_for_prompt(self.profile)
+        self.persona = load_persona()
+        self.persona_context = render_persona_prompt(self.persona)
 
         if self.plan:
             self.today_plan = get_today_plan(self.plan)
@@ -123,11 +126,13 @@ class CoachScreen(Screen):
                 self.today_plan,
                 self.plan.total_days if self.plan else session.total_days,
                 profile_context=self.profile_context,
+                persona_context=self.persona_context,
             )
         else:
             self.system_prompt = (
-                "You are an encouraging English writing coach. Do NOT use Markdown; output plain text only. "
+                "You are an encouraging English writing coach. "
                 f"=== Student Profile ===\n{self.profile_context}"
+                + (f"\n\n{self.persona_context}" if self.persona_context else "")
             )
 
     def compose(self) -> ComposeResult:

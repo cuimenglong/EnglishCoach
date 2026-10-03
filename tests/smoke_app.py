@@ -14,21 +14,37 @@ import src.dynamic_profile as dp; dp.PROFILE_PATH = TMP/"dynamic_profile.json"
 
 from src.app import EnglishCoachApp
 from src.config import Config
+from src.course_plan import PLAN_SCHEMA_VERSION
 
-PLAN = {"total_days": 14, "days": [
+PLAN = {"total_days": 14, "schema_version": PLAN_SCHEMA_VERSION, "days": [
     {"day": d, "topic": f"Topic {d}", "focus": "f",
-     "exercise_types": ["free_writing"], "vocab_theme": "v"} for d in range(1, 15)]}
+     "exercise_types": ["free_writing"], "vocab_theme": "v",
+     "knowledge_points": [{"id": "kp1", "title": f"Knowledge point {d}",
+                           "detail": "learn to do X", "example": "e.g. this"}],
+     "extension": "stretch idea", "estimated_minutes": 20}
+    for d in range(1, 15)]}
+
+# Without a plan the app still mounts CoachScreen, so assert the plan really
+# loaded -- otherwise this case silently tests the no-plan fallback path.
+PERSONA = {"level": "B1", "study_days": 14, "last_completed_day": None,
+           "persona": {"preset": "friendly", "warmth": 5, "strictness": 2,
+                       "verbosity": "balanced", "correction_style": "gentle",
+                       "accent": "neutral", "free_text": ""}}
 
 CASES = [
     ("settings (no api key)", dict(openai_api_key=""), {}),
     ("assessment screen", dict(openai_api_key="sk-test"),
      {}),
-    ("coach screen", dict(openai_api_key="sk-test"),
-     {"user_profile.json": {"level": "B1", "study_days": 14, "last_completed_day": None},
-      "course_plan.json": PLAN}),
+    ("coach screen (with plan + persona)", dict(openai_api_key="sk-test"),
+     {"user_profile.json": PERSONA, "course_plan.json": PLAN}),
     ("coach screen (mid-plan)", dict(openai_api_key="sk-test"),
-     {"user_profile.json": {"level": "B1", "study_days": 14, "last_completed_day": 6},
+     {"user_profile.json": {**PERSONA, "last_completed_day": 6},
       "course_plan.json": PLAN}),
+    ("coach screen (stale v1 plan -> regenerates)", dict(openai_api_key="sk-test"),
+     {"user_profile.json": PERSONA,
+      "course_plan.json": {"total_days": 14, "days": [
+          {"day": d, "topic": "old", "focus": "f",
+           "exercise_types": ["x"], "vocab_theme": "v"} for d in range(1, 15)]}}),
 ]
 
 async def main():
@@ -48,7 +64,27 @@ async def main():
                 await pilot.pause()
                 await asyncio.sleep(0.3)
                 await pilot.pause()
-                print(f"  [OK  ] {name}: {type(app.screen).__name__}")
+                screen = type(app.screen).__name__
+                if name.startswith("coach screen (with plan") or name.startswith("coach screen (mid-plan"):
+                    loaded = app.screen.plan
+                    if loaded is None:
+                        print(f"  [FAIL] {name}: mounted but plan did NOT load "
+                              f"(system prompt fell back to the no-plan path)")
+                        fails += 1
+                        continue
+                    if not app.screen.today_plan.knowledge_points:
+                        print(f"  [FAIL] {name}: today's plan has no knowledge points")
+                        fails += 1
+                        continue
+                    if "COACHING PERSONA" not in app.screen.system_prompt:
+                        print(f"  [FAIL] {name}: persona missing from system prompt")
+                        fails += 1
+                        continue
+                    if "KNOWLEDGE POINTS" not in app.screen.system_prompt:
+                        print(f"  [FAIL] {name}: knowledge points missing from system prompt")
+                        fails += 1
+                        continue
+                print(f"  [OK  ] {name}: {screen}")
         except Exception as e:
             fails += 1
             print(f"  [FAIL] {name}: {type(e).__name__}: {e}")
