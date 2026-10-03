@@ -20,6 +20,9 @@ EnglishCoach.spec
 # Data directory (user data created at runtime)
 data/
 
+# Generated media output
+videos/
+
 # Test / tooling
 .pytest_cache/
 .ruff_cache/
